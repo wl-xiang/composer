@@ -3,8 +3,7 @@
 .env.local
 
 # 运行时数据目录(Gitea / PostgreSQL 持久化数据)
-/gitea/
-/postgres/
+/volumes/
 
 # 备份文件
 *.tar.gz
