@@ -1,0 +1,28 @@
+# Oracle Database 11g Express Edition (XE) 部署
+#
+# 镜像:oracleinanutshell/oracle-xe-11g(社区维护,仅用于开发/测试)
+# 说明:
+#   1. Oracle 官方未提供 11g 镜像,此处使用社区镜像,生产环境请改用受支持的版本并自行解决授权。
+#   2. XE 数据库的 ORACLE_BASE 为 /u01/app/oracle,数据文件位于 /u01/app/oracle/oradata/XE。
+#   3. 只挂载 oradata 子目录,不要挂载整个 ORACLE_BASE,否则会遮蔽镜像内的 Oracle 程序目录导致启动失败。
+#   4. privileged: true 为 XE 镜像启动所需,不可删除。
+#
+# 使用前请复制 .env.example 为 .env 并按需修改。
+
+name: oracle-11g-xe
+
+services:
+  oracle:
+    image: ${ORACLE_XE_IMAGE:-oracleinanutshell/oracle-xe-11g:latest}
+    container_name: ${ORACLE_XE_CONTAINER_NAME:-oracle-11g-xe}
+    privileged: true
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+    restart: unless-stopped
+    ports:
+      - "${ORACLE_XE_PORT:-1521}:1521"
+    volumes:
+      # 数据库数据文件(数据持久化)
+      - ${ORACLE_XE_ORADATA_DIR:-./volumes/oradata}:/u01/app/oracle/oradata
+      # Data Pump(expdp/impdp)导入导出目录,需与宿主机共享
+      - ${ORACLE_XE_DUMP_DIR:-./volumes/dump}:/u01/app/oracle/dpdump

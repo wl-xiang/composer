@@ -3,6 +3,8 @@
 #
 # 使用前请复制 .env.example 为 .env 并按需修改(尤其是数据库密码)。
 
+name: gitea
+
 networks:
   gitea:
     external: false
