@@ -12,19 +12,14 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `docker-compose.yml` | Compose 编排文件(单容器 + 2 个具名卷) |
+| `docker-compose.yml` | Compose 编排文件(单容器,全部数据使用宿主机本地目录映射) |
 | `.env.example` | 环境变量模板,复制为 `.env` 后使用 |
-| `volumes/dump/` | Data Pump(`expdp`/`impdp`)导入导出目录 |
+| `volumes/oradata/` | 数据文件目录 → 容器内 `/opt/oracle/app/oradata/orcl` |
+| `volumes/fra/` | 快速恢复区(FRA)目录 → 容器内 `/opt/oracle/app/fast_recovery_area/orcl` |
+| `volumes/dump/` | Data Pump(`expdp`/`impdp`)导入导出目录 → 容器内 `/opt/oracle/dpdump` |
 
-持久化数据由两个**具名卷**承载(Compose 项目名为 `oracle-11g`):
-
-| 卷 | 容器内挂载点 | 说明 |
-| --- | --- | --- |
-| `oracle-11g_oracle_oradata` | `/opt/oracle/app/oradata/orcl` | 数据文件 |
-| `oracle-11g_oracle_fra` | `/opt/oracle/app/fast_recovery_area/orcl` | 快速恢复区(FRA) |
-
-> 具名卷由 Docker 管理,可用 `docker volume ls`、`docker volume inspect oracle-11g_oracle_oradata` 查看实际位置。
-> 注意:`docker compose down -v` 会**删除**这两个卷,数据将无法恢复。
+> 本服务**不使用 Docker 具名卷**,所有数据都落在服务目录的 `./volumes/` 下,统一管理、便于备份与迁移。
+> `docker compose down` 不会影响这些目录;删除 `volumes/` 目录才会真正丢数据。
 
 ## 前置要求
 
@@ -37,16 +32,24 @@
 ```bash
 cd oracle/11g
 
-# 1. 准备环境变量与 dump 目录
+# 1. 准备环境变量与数据目录
 cp .env.example .env
-mkdir -p volumes/dump
+mkdir -p volumes/oradata volumes/fra volumes/dump
 
-# 2. 启动(首次启动需要数分钟完成数据库初始化)
+# 2. 修正目录属主(容器内以 oracle 用户运行,需对数据目录有写权限)
+#    先查镜像内 oracle 用户的 UID/GID,常见为 500:500
+docker run --rm --entrypoint id yycx/oracle11:11.2.0.4 oracle
+sudo chown -R 500:500 volumes/oradata volumes/fra
+sudo chmod -R 775 volumes/oradata volumes/fra
+
+# 3. 启动(首次启动需要数分钟完成数据库初始化)
 docker compose up -d
 
-# 3. 观察初始化日志
+# 4. 观察初始化日志
 docker logs -f oracle-11g
 ```
+
+> 目录属主不对时,数据库会因无法写入数据文件而启动失败,日志中通常出现 `ORA-27072` / `ORA-01102` 之类的报错。
 
 ## 连接信息
 
@@ -159,7 +162,7 @@ ALTER USER appdba DEFAULT TABLESPACE APP_TS
   QUOTA UNLIMITED ON APP_TS;
 ```
 
-> 新建的数据文件必须落在已挂载的卷内(具名卷 `oracle_oradata` → `/opt/oracle/app/oradata/orcl`),
+> 新建的数据文件必须落在已挂载的目录内(`./volumes/oradata` → `/opt/oracle/app/oradata/orcl`),
 > 否则容器重建后数据会丢失。确认:
 
 ```sql
@@ -286,16 +289,15 @@ docker exec -it oracle-11g expdp appdba/"YourStrong#Passw0rd" \
 docker exec -it oracle-11g impdp appdba/"YourStrong#Passw0rd" \
   DIRECTORY=DATA_PUMP_DIR DUMPFILE=backup.dmp FULL=y LOGFILE=imp.log
 
-# 查看数据卷
-docker volume ls | grep oracle
+# 查看数据目录大小
+du -sh volumes/*
 ```
 
-物理备份(停库后打包数据卷):
+物理备份(停库后直接打包数据目录):
 
 ```bash
 docker compose down
-docker run --rm -v oracle-11g_oracle_oradata:/data -v "$PWD/volumes":/backup alpine \
-  tar czf /backup/oradata-$(date +%F).tar.gz -C /data .
+tar czf ../oracle-11g-oradata-$(date +%F).tar.gz volumes/oradata volumes/fra
 docker compose up -d
 ```
 
@@ -311,7 +313,8 @@ docker compose up -d
 | 端口冲突 | 修改 `.env` 中的 `ORACLE_PORT`(例如 `1523`) |
 | `ORA-01017` 用户名/密码错误 | 用 `su - oracle && sqlplus / as sysdba` 进入后重置密码 |
 | `ORA-28001` 密码过期 | 执行上文「密码策略」放开 `PASSWORD_LIFE_TIME` |
-| 重启容器后数据丢失 | 确认具名卷 `oracle_oradata` 未被删除(`docker compose down -v` 会删除卷,慎用) |
+| 重启容器后数据丢失 | 确认 `./volumes/oradata` 等目录仍在,且属主与容器内 `oracle` 用户一致 |
+| 数据库启动失败(`ORA-27072` / `ORA-01102`) | 数据目录属主不对,按「快速开始」第 2 步 `chown` 后重启 |
 
 ---
 

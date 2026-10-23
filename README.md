@@ -29,16 +29,26 @@
 ├── gitea/                       # 服务:目录名即服务名
 │   ├── README.md
 │   ├── docker-compose.yml
-│   └── .env.example
+│   ├── .env.example
+│   └── volumes/                 # 运行时数据(自动生成,不入库)
+│       ├── gitea/               # → 容器 /data
+│       └── postgres/            # → 容器 /var/lib/postgresql
 └── oracle/
     ├── 11g-xe/                  # 服务:子目录名即服务名
     │   ├── README.md
     │   ├── docker-compose.yml
-    │   └── .env.example
+    │   ├── .env.example
+    │   └── volumes/             # 运行时数据(自动生成,不入库)
+    │       ├── oradata/         # → 容器 /u01/app/oracle/oradata
+    │       └── dump/            # → 容器 /u01/app/oracle/dpdump
     └── 11g/
         ├── README.md
         ├── docker-compose.yml
-        └── .env.example
+        ├── .env.example
+        └── volumes/             # 运行时数据(自动生成,不入库)
+            ├── oradata/         # → 容器 /opt/oracle/app/oradata/orcl
+            ├── fra/             # → 容器 /opt/oracle/app/fast_recovery_area/orcl
+            └── dump/            # → 容器 /opt/oracle/dpdump
 ```
 
 ## 通用约定
@@ -47,7 +57,17 @@
 2. **目录命名**:
    - 顶层目录名即服务名(如 `gitea`);
    - 需要归类时使用「类别/服务名」两级结构(如 `oracle/11g`),**最多两级**。
-3. **服务目录内不放运行时数据**:持久化数据统一放在服务目录下的 `volumes/`,该目录已被 `.gitignore` 忽略。
+3. **数据一律使用宿主机本地目录映射(强制规则)**:
+   - 所有 `docker-compose.yml` 中用于**持久化数据与日志**的 `volumes` **必须**写成
+     `./volumes/xxx:容器内路径` 的本地目录映射,**禁止使用 Docker 具名卷**
+     (即禁止在 compose 顶层声明 `volumes:` 并在服务中引用卷名);
+   - 每个服务的数据目录统一放在**该服务目录下**的 `volumes/` 中,按用途分子目录,
+     例如 `gitea/volumes/gitea`、`gitea/volumes/postgres`、`oracle/11g/volumes/oradata`;
+   - 数据目录名建议与用途对应:`oradata`(数据文件)、`fra`(快速恢复区)、`dump`(导入导出)、`data`(通用数据)、`logs`(日志);
+   - 该目录由根目录 `.gitignore` 忽略,**不得提交**到仓库;
+   - 目录映射路径需通过环境变量注入并带默认值,例如 `${REDIS_DATA_DIR:-./volumes/data}:/data`,
+     方便使用者按需调整;
+   - **例外**:时区等系统文件的只读挂载(如 `/etc/localtime:/etc/localtime:ro`)不属于数据卷,可原样保留。
 4. **密钥不入库**:真实配置写在服务目录的 `.env`(已被忽略),仓库中只保留 `.env.example` 模板。
 5. **compose 文件必须支持环境变量覆盖**:镜像、端口、数据目录等通过 `${VAR:-default}` 形式注入。
 6. **命令在服务目录内执行**:所有 `docker compose` 命令都在对应服务目录下运行(Compose 以文件所在目录为项目根)。
@@ -80,10 +100,16 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
+      # 本地目录映射,统一放在服务目录的 ./volumes/ 下
       - ${REDIS_DATA_DIR:-./volumes/data}:/data
+      - ${REDIS_LOG_DIR:-./volumes/logs}:/var/log/redis
 ```
 
-要求:顶层写 `name:`;敏感信息通过环境变量注入;数据落在 `./volumes`。
+要求:
+- 顶层写 `name:`;
+- 敏感信息通过环境变量注入;
+- **数据必须使用 `./volumes/xxx` 本地目录映射,禁止使用 Docker 具名卷**;
+- 不要在 compose 顶层声明 `volumes:`(具名卷)。
 
 ### 3. 编写 `redis/.env.example`
 
@@ -128,6 +154,7 @@ services:
 ### 7. 自检清单
 
 - [ ] 服务目录下三个文件齐全:`docker-compose.yml`、`.env.example`、`README.md`
+- [ ] 所有 `volumes` 均为 `./volumes/xxx` 本地目录映射,compose 顶层**没有**声明具名卷
 - [ ] `docker compose config` 可通过(compose 文件语法正确、变量默认值齐全)
 - [ ] 服务 README 含启动/连接/运维/常见问题
 - [ ] 根目录 README 的「服务清单」已登记

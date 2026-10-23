@@ -7,6 +7,8 @@
 #      快速恢复区位于 /opt/oracle/app/fast_recovery_area/orcl。
 #   3. 国内拉取镜像较慢时,可在 .env 中改用华为云镜像仓库地址(见 .env.example 注释)。
 #   4. privileged: true 为该镜像启动所需,不可删除。
+#   5. 所有数据一律使用宿主机本地目录映射(./volumes/xxx),不使用 Docker 具名卷,
+#      统一在本仓库 ./volumes/ 下管理,便于备份与迁移。
 #
 # 使用前请复制 .env.example 为 .env 并按需修改。
 
@@ -24,13 +26,9 @@ services:
       # 宿主机 1522 → 容器 1521,与 oracle/11g-xe 服务的 1521 区分开,避免同时部署时冲突
       - "${ORACLE_PORT:-1522}:1521"
     volumes:
-      # 数据文件(具名卷)
-      - oracle_oradata:/opt/oracle/app/oradata/orcl
-      # 快速恢复区(具名卷)
-      - oracle_fra:/opt/oracle/app/fast_recovery_area/orcl
-      # Data Pump(expdp/impdp)导入导出目录(宿主机目录共享)
+      # 数据文件
+      - ${ORACLE_ORADATA_DIR:-./volumes/oradata}:/opt/oracle/app/oradata/orcl
+      # 快速恢复区(FRA)
+      - ${ORACLE_FRA_DIR:-./volumes/fra}:/opt/oracle/app/fast_recovery_area/orcl
+      # Data Pump(expdp/impdp)导入导出目录
       - ${ORACLE_DUMP_DIR:-./volumes/dump}:/opt/oracle/dpdump
-
-volumes:
-  oracle_oradata:
-  oracle_fra:
