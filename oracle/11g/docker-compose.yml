@@ -1,0 +1,36 @@
+# Oracle Database 11g Enterprise Edition 部署
+#
+# 镜像:yycx/oracle11:11.2.0.4(社区维护,仅用于开发/测试,镜像体积约 7.35GB)
+# 说明:
+#   1. Oracle 官方未提供 11g 镜像,此处使用社区镜像,生产环境请改用受支持的版本并自行解决授权。
+#   2. 实例 SID 为 orcl,数据文件位于 /opt/oracle/app/oradata/orcl,
+#      快速恢复区位于 /opt/oracle/app/fast_recovery_area/orcl。
+#   3. 国内拉取镜像较慢时,可在 .env 中改用华为云镜像仓库地址(见 .env.example 注释)。
+#   4. privileged: true 为该镜像启动所需,不可删除。
+#
+# 使用前请复制 .env.example 为 .env 并按需修改。
+
+name: oracle-11g
+
+services:
+  oracle:
+    image: ${ORACLE_IMAGE:-yycx/oracle11:11.2.0.4}
+    container_name: ${ORACLE_CONTAINER_NAME:-oracle-11g}
+    privileged: true
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+    restart: unless-stopped
+    ports:
+      # 宿主机 1522 → 容器 1521,与 oracle/11g-xe 服务的 1521 区分开,避免同时部署时冲突
+      - "${ORACLE_PORT:-1522}:1521"
+    volumes:
+      # 数据文件(具名卷)
+      - oracle_oradata:/opt/oracle/app/oradata/orcl
+      # 快速恢复区(具名卷)
+      - oracle_fra:/opt/oracle/app/fast_recovery_area/orcl
+      # Data Pump(expdp/impdp)导入导出目录(宿主机目录共享)
+      - ${ORACLE_DUMP_DIR:-./volumes/dump}:/opt/oracle/dpdump
+
+volumes:
+  oracle_oradata:
+  oracle_fra:

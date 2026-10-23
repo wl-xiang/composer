@@ -1,0 +1,105 @@
+name: Pack Service
+
+# 手动触发:通过下拉框选择要打包的服务目录,打包结果以 artifact 形式提供下载。
+#
+# 新增服务时必须同步在下面的 options 中增加一个 choice:
+#   choice 名称 = 服务目录路径中的 "/" 替换为 "-"
+#   例:gitea -> gitea,oracle/11g-xe -> oracle-11g-xe,oracle/11g -> oracle-11g
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "选择要打包的服务(对应仓库中的服务目录)"
+        type: choice
+        required: true
+        default: gitea
+        options:
+          - gitea
+          - oracle-11g-xe
+          - oracle-11g
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    name: Pack
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 解析服务目录
+        id: resolve
+        env:
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+
+          # 约定:服务目录路径中的 "/" 替换为 "-" 即为 action choice 名称。
+          # 目录深度最多支持两层(例如 gitea、oracle/11g)。
+          found=""
+          while IFS= read -r dir; do
+            slug="${dir//\//-}"
+            if [ "$slug" != "$SERVICE" ]; then
+              continue
+            fi
+            if [ -n "$found" ]; then
+              echo "::error::choice '$SERVICE' 同时匹配到多个目录:$found、$dir"
+              exit 1
+            fi
+            found="$dir"
+          done < <(
+            find . -mindepth 1 -maxdepth 2 -type d \
+              -not -path './.git' -not -path './.git/*' \
+              -not -path './.github' -not -path './.github/*' \
+              -not -path './.uploads' -not -path './.uploads/*' \
+              | sed 's#^\./##' | sort
+          )
+
+          if [ -z "$found" ]; then
+            echo "::error::未找到与 choice '$SERVICE' 对应的服务目录,请确认目录结构或更新 workflow 的 options"
+            exit 1
+          fi
+
+          echo "dir=$found" >> "$GITHUB_OUTPUT"
+          echo "archive=$SERVICE" >> "$GITHUB_OUTPUT"
+          echo "已解析服务目录:$found"
+
+      - name: 打包服务目录
+        env:
+          DIR: ${{ steps.resolve.outputs.dir }}
+          ARCHIVE: ${{ steps.resolve.outputs.archive }}
+        run: |
+          set -euo pipefail
+
+          # 排除运行时数据与含真实密码的 .env
+          tar -czf "${ARCHIVE}.tar.gz" \
+            --exclude='volumes' --exclude='.env' --exclude='.env.local' \
+            --exclude='dump' --exclude='*.tar.gz' \
+            -C . "$DIR"
+
+          ls -lh "${ARCHIVE}.tar.gz"
+          tar -tzf "${ARCHIVE}.tar.gz" | sed -n '1,50p'
+
+      - name: 上传打包结果
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.resolve.outputs.archive }}
+          path: ${{ steps.resolve.outputs.archive }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 输出摘要
+        env:
+          DIR: ${{ steps.resolve.outputs.dir }}
+          ARCHIVE: ${{ steps.resolve.outputs.archive }}
+        run: |
+          {
+            echo "## 打包结果"
+            echo ""
+            echo "- choice:\`${ARCHIVE}\`"
+            echo "- 服务目录:\`${DIR}\`"
+            echo "- 压缩包:\`${ARCHIVE}.tar.gz\`(已排除 volumes/ 与 .env)"
+          } >> "$GITHUB_STEP_SUMMARY"

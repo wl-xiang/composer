@@ -2,8 +2,8 @@
 .env
 .env.local
 
-# 运行时数据目录(Gitea / PostgreSQL 持久化数据)
-/volumes/
+# 运行时数据目录(各服务持久化数据,例如 gitea/volumes、oracle/11g/volumes)
+volumes/
 
 # 备份文件
 *.tar.gz
@@ -20,3 +20,6 @@
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 临时上传目录
+/.uploads/
