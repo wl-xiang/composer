@@ -1,0 +1,115 @@
+# Copyright 2024 RustFS Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# RustFS 对象存储部署(单机多盘)
+# 基于官方示例改写: https://github.com/rustfs/rustfs/blob/main/docker-compose-simple.yml
+#
+# 与官方示例的差异:所有 named volume 均已改为宿主机目录 bind 绑定(./volumes/xxx)。
+# 使用前请先创建好绑定目录并复制 .env.example 为 .env 修改密钥,步骤详见 README.md。
+
+name: rustfs
+
+networks:
+  rustfs-network:
+    external: false
+
+services:
+  # RustFS 主服务
+  rustfs:
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:latest}
+    container_name: rustfs-server
+    depends_on:
+      volume-permission-helper:
+        condition: service_completed_successfully
+    security_opt:
+      - "no-new-privileges:true"
+    ports:
+      - "${RUSTFS_S3_PORT:-9000}:9000" # S3 API 端口
+      - "${RUSTFS_CONSOLE_PORT:-9001}:9001" # Console 端口
+    environment:
+      - RUSTFS_VOLUMES=/data/rustfs{0...3}
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=*
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin} # CHANGEME
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin} # CHANGEME
+      - RUSTFS_OBS_LOGGER_LEVEL=info
+      - RUSTFS_OBS_LOG_DIRECTORY=/app/logs
+      # 可选 TLS:
+      # - 将证书目录挂载到 /opt/tls
+      # - 设置 RUSTFS_TLS_PATH=/opt/tls
+      # - 启用 TLS 后,健康检查会自动切换为 HTTPS
+      # 默认开启严格的磁盘拓扑校验;仅本地测试时才显式设置 RUSTFS_UNSAFE_BYPASS_DISK_CHECK=true
+      - RUSTFS_UNSAFE_BYPASS_DISK_CHECK=${RUSTFS_UNSAFE_BYPASS_DISK_CHECK:-false}
+    volumes:
+      # bind 绑定:首次启动前必须先创建 ./volumes/ 下对应目录(见 README「准备 bind 绑定目录」)
+      - ${RUSTFS_DATA_0_DIR:-./volumes/rustfs0}:/data/rustfs0
+      - ${RUSTFS_DATA_1_DIR:-./volumes/rustfs1}:/data/rustfs1
+      - ${RUSTFS_DATA_2_DIR:-./volumes/rustfs2}:/data/rustfs2
+      - ${RUSTFS_DATA_3_DIR:-./volumes/rustfs3}:/data/rustfs3
+      - ${RUSTFS_LOGS_DIR:-./volumes/logs}:/app/logs
+    networks:
+      - rustfs-network
+    restart: unless-stopped
+    healthcheck:
+      # 默认行为:
+      # - 未设置 RUSTFS_TLS_PATH 时走 HTTP
+      # - 设置 RUSTFS_TLS_PATH 后走 HTTPS
+      # - 环回地址的 TLS 使用 -k,除非提供了严格的主机名 + CA 配置
+      test:
+        [
+          "CMD",
+          "sh", "-ec",
+          "host=\"$${RUSTFS_HEALTHCHECK_HOST:-127.0.0.1}\"; scheme=\"http\"; set -- -fsS; \
+          if [ -n \"$${RUSTFS_TLS_PATH:-}\" ]; then \
+            scheme=\"https\"; \
+            ca_path=\"$${RUSTFS_HEALTHCHECK_CA:-}\"; \
+            if [ -z \"$${ca_path}\" ] && [ -f /opt/tls/ca.crt ]; then ca_path=/opt/tls/ca.crt; fi; \
+            case \"$${host}\" in 127.0.0.1|localhost) strict_host=false ;; *) strict_host=true ;; esac; \
+            if [ \"$${strict_host}\" = true ] && [ -n \"$${ca_path}\" ]; then \
+              set -- \"$${@}\" --cacert \"$${ca_path}\" --resolve \"$${host}:9000:127.0.0.1\" --resolve \"$${host}:9001:127.0.0.1\"; \
+            else \
+              set -- \"$${@}\" -k; \
+            fi; \
+          fi; \
+          curl \"$${@}\" \"$${scheme}://$${host}:9000/health\" && \
+          curl \"$${@}\" \"$${scheme}://$${host}:9001/rustfs/console/health\""
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 权限修复辅助容器(方案A):启动前把 bind 绑定的宿主机目录属主改为 10001:10001
+  # 注意:macOS Docker Desktop 的 bind mount 权限模型不同,容器内 chown 不会生效,
+  #       mac 上请改用「方案B」(宿主机手动授权并删除本服务),详见 README.md
+  volume-permission-helper:
+    image: ${RUSTFS_HELPER_IMAGE:-alpine}
+    volumes:
+      - ${RUSTFS_DATA_0_DIR:-./volumes/rustfs0}:/data/rustfs0
+      - ${RUSTFS_DATA_1_DIR:-./volumes/rustfs1}:/data/rustfs1
+      - ${RUSTFS_DATA_2_DIR:-./volumes/rustfs2}:/data/rustfs2
+      - ${RUSTFS_DATA_3_DIR:-./volumes/rustfs3}:/data/rustfs3
+      - ${RUSTFS_LOGS_DIR:-./volumes/logs}:/app/logs
+    command: >
+      sh -c "
+        chown -R 10001:10001 /data/rustfs0 /data/rustfs1 /data/rustfs2 /data/rustfs3 /app/logs &&
+        echo 'Bind mount permissions fixed to 10001:10001' &&
+        exit 0
+      "
+    # 权限基线:
+    # - RustFS 容器内默认以 10001:10001 运行
+    # - 也可以删掉本服务,改为让 rustfs 以与宿主机目录属主一致的 user: "<uid>:<gid>" 运行
+    restart: "no"

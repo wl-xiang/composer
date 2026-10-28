@@ -18,6 +18,7 @@ on:
           - gitea
           - oracle-11g-xe
           - oracle-11g
+          - rustfs
 
 permissions:
   contents: read

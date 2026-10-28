@@ -14,6 +14,7 @@
 | Gitea + PostgreSQL | [`gitea/`](gitea/) | `gitea` | `44180`(Web)/`222`(SSH) | 首次访问走安装向导 | [Gitea 官方文档](https://docs.gitea.com/installation/install-with-docker/) |
 | Oracle 11g XE | [`oracle/11g-xe/`](oracle/11g-xe/) | `oracle-11g-xe` | `1521` | `system` / `oracle` | 社区镜像,仅供开发测试 |
 | Oracle 11g EE | [`oracle/11g/`](oracle/11g/) | `oracle-11g` | `1522` | `system`(密码以镜像为准) | 社区镜像,仅供开发测试 |
+| RustFS 对象存储 | [`rustfs/`](rustfs/) | `rustfs` | `9000`(S3 API)/`9001`(Console) | `rustfsadmin` / `rustfsadmin`(务必修改) | [RustFS 官方仓库](https://github.com/rustfs/rustfs) |
 
 每个服务的完整使用说明(启动、连接、初始化、备份、常见问题)请查看其目录下的 `README.md`。
 
@@ -33,7 +34,7 @@
 │   └── volumes/                 # 运行时数据(自动生成,不入库)
 │       ├── gitea/               # → 容器 /data
 │       └── postgres/            # → 容器 /var/lib/postgresql
-└── oracle/
+├── oracle/
     ├── 11g-xe/                  # 服务:子目录名即服务名
     │   ├── README.md
     │   ├── docker-compose.yml
@@ -49,6 +50,16 @@
             ├── oradata/         # → 容器 /opt/oracle/app/oradata/orcl
             ├── fra/             # → 容器 /opt/oracle/app/fast_recovery_area/orcl
             └── dump/            # → 容器 /opt/oracle/dpdump
+└── rustfs/                      # 服务:RustFS 对象存储(S3 兼容)
+    ├── README.md
+    ├── docker-compose.yml
+    ├── .env.example
+    └── volumes/                 # 运行时数据(需提前创建,不入库)
+        ├── rustfs0/             # → 容器 /data/rustfs0
+        ├── rustfs1/             # → 容器 /data/rustfs1
+        ├── rustfs2/             # → 容器 /data/rustfs2
+        ├── rustfs3/             # → 容器 /data/rustfs3
+        └── logs/                # → 容器 /app/logs
 ```
 
 ## 通用约定
