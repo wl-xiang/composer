@@ -1,13 +1,17 @@
-# Oracle Database 11g Enterprise Edition 部署
+# Oracle Database 11g Enterprise Edition 部署(优化镜像)
 #
-# 镜像:yycx/oracle11:11.2.0.4(社区维护,仅用于开发/测试,镜像体积约 7.35GB)
+# 镜像:基于 yycx/oracle11:11.2.0.4 二次构建的本地优化镜像(仅用于开发/测试,体积约 7.35GB)
+# 优化内容:
+#   1. entrypoint 自动探测 ORACLE_HOME/SID,等待数据库 OPEN 后输出
+#      "Database ready to use. Enjoy ;)",便于判断启动成功;
+#   2. 预置业务用户 oracle1/oracle1(拥有 DBA 全权限),与 system 分离,开箱即用;
+#   3. 容器内 sqlplus 加入 PATH(sqlplus 在 oracle 用户 profile 中,root 下需 su - oracle)。
 # 说明:
-#   1. Oracle 官方未提供 11g 镜像,此处使用社区镜像,生产环境请改用受支持的版本并自行解决授权。
+#   1. Oracle 官方未提供 11g 镜像,base 为社区镜像,生产环境请改用受支持的版本并自行解决授权。
 #   2. 实例 SID 为 orcl,数据文件位于 /opt/oracle/app/oradata/orcl,
 #      快速恢复区位于 /opt/oracle/app/fast_recovery_area/orcl。
-#   3. 国内拉取镜像较慢时,可在 .env 中改用华为云镜像仓库地址(见 .env.example 注释)。
-#   4. privileged: true 为该镜像启动所需,不可删除。
-#   5. 所有数据一律使用宿主机本地目录映射(./volumes/xxx),不使用 Docker 具名卷,
+#   3. privileged: true 为该镜像启动所需,不可删除。
+#   4. 所有数据一律使用宿主机本地目录映射(./volumes/xxx),不使用 Docker 具名卷,
 #      统一在本仓库 ./volumes/ 下管理,便于备份与迁移。
 #
 # 使用前请复制 .env.example 为 .env 并按需修改。
@@ -16,7 +20,10 @@ name: oracle-11g
 
 services:
   oracle:
-    image: ${ORACLE_IMAGE:-yycx/oracle11:11.2.0.4}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${ORACLE_IMAGE:-oracle-11g:1.0.0}
     container_name: ${ORACLE_CONTAINER_NAME:-oracle-11g}
     privileged: true
     environment:
