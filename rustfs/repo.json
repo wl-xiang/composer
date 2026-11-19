@@ -1,0 +1,7 @@
+{
+  "name": "rustfs",
+  "repository": "https://github.com/rustfs/rustfs",
+  "image": "rustfs/rustfs",
+  "compose_file": "docker-compose.yml",
+  "output_file": "docker-compose.fixed-latest.yml"
+}
