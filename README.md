@@ -12,8 +12,8 @@
 | 服务 | 目录 | Action Choice | 默认端口 | 默认账号 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | Gitea + PostgreSQL | [`gitea/`](gitea/) | `gitea` | `44180`(Web)/`222`(SSH) | 首次访问走安装向导 | [Gitea 官方文档](https://docs.gitea.com/installation/install-with-docker/) |
-| Oracle 11g XE | [`oracle/11g-xe/`](oracle/11g-xe/) | `oracle-11g-xe` | `1521` | `system` / `oracle` | 社区镜像,仅供开发测试 |
-| Oracle 11g EE | [`oracle/11g/`](oracle/11g/) | `oracle-11g` | `1522` | `system`(密码以镜像为准) | 社区镜像,仅供开发测试 |
+| Oracle 11g XE | [`oracle/11g-xe/`](oracle/11g-xe/) | `oracle-11g-xe` | `1521` | `oracle1` / `oracle1`(管理员 `system` / `oracle`) | 优化镜像(amd64/arm64),仅供开发测试 |
+| Oracle 11g EE | [`oracle/11g/`](oracle/11g/) | `oracle-11g` | `1522` | `oracle1` / `oracle1`(管理员 `system`,密码以镜像为准) | 优化镜像(amd64/arm64),仅供开发测试 |
 | RustFS 对象存储 | [`rustfs/`](rustfs/) | `rustfs` | `9000`(S3 API)/`9001`(Console) | `rustfsadmin` / `rustfsadmin`(务必修改) | [RustFS 官方仓库](https://github.com/rustfs/rustfs) |
 
 每个服务的完整使用说明(启动、连接、初始化、备份、常见问题)请查看其目录下的 `README.md`。
@@ -38,6 +38,11 @@
     ├── 11g-xe/                  # 服务:子目录名即服务名
     │   ├── README.md
     │   ├── docker-compose.yml
+    │   ├── Dockerfile           # 优化镜像(amd64/arm64)
+    │   ├── entrypoint.sh        # 启动包装:等待 OPEN → 初始化 → 输出 ready
+    │   ├── check-db.sql         # 数据库状态探测
+    │   ├── initdb/              # 启动时幂等执行的初始化 SQL(预置 oracle1 用户)
+    │   ├── build.sh             # 多架构构建脚本
     │   ├── .env.example
     │   └── volumes/             # 运行时数据(自动生成,不入库)
     │       ├── oradata/         # → 容器 /u01/app/oracle/oradata
@@ -45,6 +50,11 @@
     └── 11g/
         ├── README.md
         ├── docker-compose.yml
+        ├── Dockerfile           # 优化镜像(amd64/arm64)
+        ├── entrypoint.sh        # 启动包装:探测环境 → 等待 OPEN → 初始化 → 输出 ready
+        ├── check-db.sql         # 数据库状态探测
+        ├── initdb/              # 启动时幂等执行的初始化 SQL(预置 oracle1 用户)
+        ├── build.sh             # 多架构构建脚本
         ├── .env.example
         └── volumes/             # 运行时数据(自动生成,不入库)
             ├── oradata/         # → 容器 /opt/oracle/app/oradata/orcl
