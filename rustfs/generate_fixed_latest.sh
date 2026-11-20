@@ -14,10 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# 生成 docker-compose.fixed-latest.yml:
+# 生成固定版本号的 compose 文件:
 #   1. 读取同目录下的 repo.json,得到上游仓库地址与镜像名;
 #   2. 查询上游最新 release 的 tag;
-#   3. 复制 docker-compose.yml,仅把镜像行固定为「镜像名:最新 tag」,其余内容保持不变。
+#   3. 复制 docker-compose.yml 与 docker-compose.single-disk.yml,
+#      仅把镜像行固定为「镜像名:最新 tag」,其余内容保持不变,分别产出:
+#      - docker-compose.fixed-latest.yml
+#      - docker-compose.single-disk.fixed-latest.yml
 #
 # 用法: ./generate_fixed_latest.sh
 # 可选环境变量: GITHUB_TOKEN(访问 GitHub API 时提高速率上限)
@@ -57,7 +60,12 @@ OUTPUT_FILE="$(json_get '.output_file')"
 SOURCE_COMPOSE="${SCRIPT_DIR}/${COMPOSE_FILE}"
 TARGET_COMPOSE="${SCRIPT_DIR}/${OUTPUT_FILE}"
 
+# 单盘编排文件与对应产物(repo.json 只描述默认编排,这里固定第二组)
+SINGLE_DISK_SOURCE_COMPOSE="${SCRIPT_DIR}/docker-compose.single-disk.yml"
+SINGLE_DISK_TARGET_COMPOSE="${SCRIPT_DIR}/docker-compose.single-disk.fixed-latest.yml"
+
 [ -f "${SOURCE_COMPOSE}" ] || { echo "错误: 未找到 ${SOURCE_COMPOSE}" >&2; exit 1; }
+[ -f "${SINGLE_DISK_SOURCE_COMPOSE}" ] || { echo "错误: 未找到 ${SINGLE_DISK_SOURCE_COMPOSE}" >&2; exit 1; }
 
 # 从仓库地址解析 owner/repo,例如 https://github.com/rustfs/rustfs -> rustfs/rustfs
 REPO_SLUG="${REPOSITORY%.git}"
@@ -102,22 +110,29 @@ TAG="$(fetch_latest_tag "${REPO_SLUG}")" || {
 IMAGE_TAG="${TAG#v}"
 
 # 复制 compose 文件,仅替换镜像行
-if ! awk -v image="${IMAGE}" -v tag="${IMAGE_TAG}" '
-  !replaced && /^[[:space:]]*image:[[:space:]]*/ && index($0, image ":") > 0 {
-    indent = $0
-    sub(/[^[:space:]].*$/, "", indent)
-    printf "%simage: %s:%s\n", indent, image, tag
-    replaced = 1
-    next
-  }
-  { print }
-  END { if (!replaced) { printf("错误: 未在 compose 文件中找到镜像行 %s:<tag>\n", image) > "/dev/stderr"; exit 2 } }
-' "${SOURCE_COMPOSE}" > "${TARGET_COMPOSE}"; then
-  rm -f "${TARGET_COMPOSE}"
-  exit 1
-fi
+generate_fixed() {
+  local source="$1" target="$2"
+  if ! awk -v image="${IMAGE}" -v tag="${IMAGE_TAG}" '
+    !replaced && /^[[:space:]]*image:[[:space:]]*/ && index($0, image ":") > 0 {
+      indent = $0
+      sub(/[^[:space:]].*$/, "", indent)
+      printf "%simage: %s:%s\n", indent, image, tag
+      replaced = 1
+      next
+    }
+    { print }
+    END { if (!replaced) { printf("错误: 未在 compose 文件中找到镜像行 %s:<tag>\n", image) > "/dev/stderr"; exit 2 } }
+  ' "${source}" > "${target}"; then
+    rm -f "${target}"
+    return 1
+  fi
+}
+
+generate_fixed "${SOURCE_COMPOSE}" "${TARGET_COMPOSE}" || exit 1
+generate_fixed "${SINGLE_DISK_SOURCE_COMPOSE}" "${SINGLE_DISK_TARGET_COMPOSE}" || exit 1
 
 echo "已生成 ${OUTPUT_FILE}"
+echo "已生成 $(basename "${SINGLE_DISK_TARGET_COMPOSE}")"
 echo "  上游仓库: ${REPOSITORY}"
 echo "  最新版本: ${TAG}"
 echo "  固定镜像: ${IMAGE}:${IMAGE_TAG}"
