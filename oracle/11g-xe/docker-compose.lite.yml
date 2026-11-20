@@ -1,0 +1,13 @@
+services:
+  oracle:
+    # 官方维护的 Oracle 11g 镜像（最稳定、常用）
+    image: oracleinanutshell/oracle-xe-11g
+    container_name: oracle11g
+    ports:
+      - "1521:1521"   # Oracle 默认端口
+    volumes:
+      - ./volumes/data:/home/oracle/app/oracle/oradata  # 数据持久化
+    environment:
+      - TZ=Asia/Shanghai
+    restart: always
+    privileged: true  # 必须开启，否则启动失败
