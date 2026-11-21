@@ -99,6 +99,10 @@ services:
   #       mac 上请改用「方案B」(宿主机手动授权并删除本服务),详见 README.md
   volume-permission-helper:
     image: ${RUSTFS_HELPER_IMAGE:-alpine}
+    # 只需要改本地目录属主,不参与网络;避免 compose 并发创建第二个网络(default)
+    # 触发旧内核 Docker 的 bridge 配置竞态(导致 rustfs 网络网桥无网关 IP、端口不可达)。
+    # 详见同目录 NETWORK-PROBLEM.md
+    network_mode: none
     volumes:
       - ${RUSTFS_DATA_0_DIR:-./volumes/rustfs0}:/data/rustfs0
       - ${RUSTFS_LOGS_DIR:-./volumes/logs}:/app/logs
