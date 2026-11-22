@@ -1,0 +1,176 @@
+# syntax=docker/dockerfile:1
+# Oracle 11g XE preset image (amd64 only; Oracle 11g has no ARM binaries).
+FROM --platform=linux/amd64 oracleinanutshell/oracle-xe-11g:latest
+
+ENV ORACLE_SID=XE \
+    ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe \
+    PATH=/u01/app/oracle/product/11.2.0/xe/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    NLS_LANG=AMERICAN_AMERICA.AL32UTF8 \
+    LANG=C.UTF-8 \
+    ORACLE_ALLOW_REMOTE=true \
+    ORACLE_DISABLE_ASYNCH_IO=true
+
+COPY --chmod=755 <<'EOF' /usr/local/bin/oracle-entrypoint.sh
+#!/bin/bash
+# Start DB -> wait OPEN -> run preset init SQL -> stay in foreground.
+set -u
+
+ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe
+ORACLE_SID=XE
+INIT_DIR=/usr/local/share/oracle-initdb
+export ORACLE_HOME ORACLE_SID
+export NLS_LANG="${NLS_LANG:-AMERICAN_AMERICA.AL32UTF8}"
+export PATH="$ORACLE_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$ORACLE_HOME/lib:${LD_LIBRARY_PATH:-}"
+
+log() { echo "[oracle-entrypoint] $*" >&2; }
+
+su_oracle() {
+  su -l oracle -c "export ORACLE_HOME='$ORACLE_HOME' ORACLE_SID='$ORACLE_SID' \
+LD_LIBRARY_PATH='$ORACLE_HOME/lib' PATH='$ORACLE_HOME/bin':\$PATH; $*"
+}
+
+start_db_manually() {
+  log "Manually starting listener and instance..."
+  su_oracle "lsnrctl start" || true
+  echo 'startup;' | su_oracle "sqlplus -s / as sysdba" || true
+}
+
+wait_db_open() {
+  local deadline=$(( $(date +%s) + $1 ))
+  local status
+  printf 'SET HEADING OFF FEEDBACK OFF PAGESIZE 0\nWHENEVER SQLERROR EXIT FAILURE\nSELECT status FROM v$instance;\nEXIT\n' > /tmp/check-db.sql
+  chmod 644 /tmp/check-db.sql
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    status=$(su_oracle "sqlplus -s / as sysdba @/tmp/check-db.sql" 2>/dev/null | tr -d '[:space:]')
+    if [ "$status" = "OPEN" ]; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
+orig_startup=""
+for candidate in /usr/sbin/startup.sh /usr/sbin/startup2.sh /usr/local/bin/startup.sh; do
+  if [ -x "$candidate" ]; then
+    orig_startup="$candidate"
+    break
+  fi
+done
+
+if [ -n "$orig_startup" ]; then
+  log "Launching original startup script: $orig_startup"
+  ( "$orig_startup" ) || true &
+else
+  log "No original startup script found, starting database manually"
+  start_db_manually
+fi
+
+log "Waiting for database to OPEN (first boot takes several minutes)..."
+if wait_db_open 480; then
+  log "Database instance is OPEN."
+else
+  log "Not OPEN yet, retrying with manual startup..."
+  start_db_manually
+  if wait_db_open 300; then
+    log "Database instance is OPEN."
+  else
+    log "ERROR: database did not reach OPEN state."
+    exit 1
+  fi
+fi
+
+shopt -s nullglob
+for f in "$INIT_DIR"/*.sql; do
+  log "Running init: $(basename "$f")"
+  su_oracle "sqlplus -s / as sysdba @'$f'" || log "WARN: $(basename "$f") failed (non-fatal)"
+done
+shopt -u nullglob
+
+echo ""
+echo "Database ready to use. Enjoy ;)"
+echo "Preset user: DEV / dev@1234  (SID: XE)"
+echo ""
+exec tail -f /dev/null
+EOF
+
+COPY --chmod=644 <<'EOF' /usr/local/share/oracle-initdb/01-preset-dev.sql
+-- Preset (idempotent), runs as SYSDBA after the instance is OPEN.
+SET ECHO ON FEEDBACK ON SERVEROUTPUT ON
+
+ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
+ALTER PROFILE DEFAULT LIMIT FAILED_LOGIN_ATTEMPTS UNLIMITED;
+
+DECLARE
+  n NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO n FROM dba_tablespaces WHERE tablespace_name = 'TS_DEV_TMP';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE TEMPORARY TABLESPACE TS_DEV_TMP '
+      || 'TEMPFILE ''/u01/app/oracle/oradata/XE/ts_dev_tmp01.dbf'' '
+      || 'SIZE 50M AUTOEXTEND ON NEXT 10M MAXSIZE 500M';
+    DBMS_OUTPUT.PUT_LINE('TS_DEV_TMP created');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('TS_DEV_TMP exists, skipped');
+  END IF;
+
+  SELECT COUNT(*) INTO n FROM dba_tablespaces WHERE tablespace_name = 'TS_DEV';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE TABLESPACE TS_DEV '
+      || 'DATAFILE ''/u01/app/oracle/oradata/XE/ts_dev01.dbf'' '
+      || 'SIZE 200M AUTOEXTEND ON NEXT 100M MAXSIZE UNLIMITED '
+      || 'EXTENT MANAGEMENT LOCAL SEGMENT SPACE MANAGEMENT AUTO';
+    DBMS_OUTPUT.PUT_LINE('TS_DEV created');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('TS_DEV exists, skipped');
+  END IF;
+
+  SELECT COUNT(*) INTO n FROM dba_users WHERE username = 'DEV';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE USER DEV IDENTIFIED BY "dev@1234" '
+      || 'DEFAULT TABLESPACE TS_DEV TEMPORARY TABLESPACE TS_DEV_TMP '
+      || 'QUOTA UNLIMITED ON TS_DEV ACCOUNT UNLOCK';
+    DBMS_OUTPUT.PUT_LINE('User DEV created');
+  ELSE
+    EXECUTE IMMEDIATE
+      'ALTER USER DEV IDENTIFIED BY "dev@1234" '
+      || 'DEFAULT TABLESPACE TS_DEV TEMPORARY TABLESPACE TS_DEV_TMP '
+      || 'QUOTA UNLIMITED ON TS_DEV ACCOUNT UNLOCK';
+    DBMS_OUTPUT.PUT_LINE('User DEV exists, updated');
+  END IF;
+END;
+/
+
+GRANT CONNECT, RESOURCE, DBA TO DEV;
+
+DECLARE
+  n NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO n FROM dba_tables WHERE owner = 'DEV' AND table_name = 'T_DEV_EXAMPLE';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE TABLE DEV.T_DEV_EXAMPLE ('
+      || 'ID NUMBER(10) PRIMARY KEY, '
+      || 'NAME VARCHAR2(100) NOT NULL, '
+      || 'REMARK VARCHAR2(500), '
+      || 'CREATED_AT DATE DEFAULT SYSDATE)';
+    EXECUTE IMMEDIATE
+      'INSERT INTO DEV.T_DEV_EXAMPLE (ID, NAME, REMARK) '
+      || 'VALUES (1, ''sample'', ''seeded by init script'')';
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('DEV.T_DEV_EXAMPLE created');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('DEV.T_DEV_EXAMPLE exists, skipped');
+  END IF;
+END;
+/
+
+EXIT
+EOF
+
+CMD []
+ENTRYPOINT ["/usr/local/bin/oracle-entrypoint.sh"]

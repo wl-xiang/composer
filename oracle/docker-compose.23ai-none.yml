@@ -1,0 +1,35 @@
+# Oracle Database 23ai Free 预置镜像部署(原生 amd64 + arm64)。
+# 预置:用户 dev/dev@1234、表空间 TS_DEV、临时表空间 TS_DEV_TMP、样例表 DEV.T_DEV_EXAMPLE(建在 FREEPDB1)。
+# 管理员 system/SYS 密码为 ORACLE_SYS_PASSWORD(仅首次建库时生效)。
+name: oracle-23ai
+
+services:
+  oracle:
+    build:
+      context: .
+      dockerfile: Dockerfile.23ai-none
+    image: ${ORACLE_23AI_IMAGE:-oracle-23ai-preset:1.0.0}
+    container_name: ${ORACLE_23AI_CONTAINER_NAME:-oracle-23ai}
+    hostname: oracle23ai
+    restart: unless-stopped
+    stop_grace_period: 180s
+    shm_size: 1g
+    mem_limit: ${ORACLE_23AI_MEM_LIMIT:-4g}
+    ports:
+      - "${ORACLE_23AI_PORT:-1521}:1521"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      ORACLE_PASSWORD: ${ORACLE_SYS_PASSWORD:-SysOracle123}
+    volumes:
+      - ${ORACLE_23AI_ORADATA_DIR:-./volumes/oradata}:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 300s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

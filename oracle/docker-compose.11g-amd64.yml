@@ -1,0 +1,63 @@
+# Oracle Database 11g XE 预置镜像部署(仅 amd64)。
+# 预置:用户 dev/dev@1234、表空间 TS_DEV、临时表空间 TS_DEV_TMP、样例表 DEV.T_DEV_EXAMPLE。
+# 数据使用 ./volumes/ 绑定目录;首次启动由 oracle-seed 服务把镜像内预建库复制进去。
+name: oracle-11g
+
+services:
+  oracle-seed:
+    image: ${ORACLE_11G_IMAGE:-oracle-11g-preset:1.0.0}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        if [ -f /seed/oradata/XE/system01.dbf ]; then
+          echo "seed: existing data found, skip"
+          exit 0
+        fi
+        cp -a /u01/app/oracle/oradata/. /seed/oradata/
+        cp -a /u01/app/oracle/fast_recovery_area/. /seed/fra/
+        echo "seed: pre-built database copied to ./volumes/"
+    volumes:
+      - ${ORACLE_11G_ORADATA_DIR:-./volumes/oradata}:/seed/oradata
+      - ${ORACLE_11G_FRA_DIR:-./volumes/fra}:/seed/fra
+    restart: "no"
+
+  oracle:
+    build:
+      context: .
+      dockerfile: Dockerfile.11g-amd64
+    image: ${ORACLE_11G_IMAGE:-oracle-11g-preset:1.0.0}
+    container_name: ${ORACLE_11G_CONTAINER_NAME:-oracle-11g}
+    hostname: oracle11g
+    restart: unless-stopped
+    depends_on:
+      oracle-seed:
+        condition: service_completed_successfully
+    stop_grace_period: 180s
+    shm_size: 1g
+    mem_limit: ${ORACLE_11G_MEM_LIMIT:-4g}
+    ports:
+      - "${ORACLE_11G_PORT:-1522}:1521"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NLS_LANG: ${ORACLE_11G_NLS_LANG:-AMERICAN_AMERICA.AL32UTF8}
+      LANG: C.UTF-8
+      ORACLE_ALLOW_REMOTE: "true"
+      ORACLE_DISABLE_ASYNCH_IO: "true"
+    volumes:
+      - ${ORACLE_11G_ORADATA_DIR:-./volumes/oradata}:/u01/app/oracle/oradata
+      - ${ORACLE_11G_FRA_DIR:-./volumes/fra}:/u01/app/oracle/fast_recovery_area
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          { echo 'whenever sqlerror exit 1'; echo 'select 1 from dual;'; echo exit; } | sqlplus -s system/oracle
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 300s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

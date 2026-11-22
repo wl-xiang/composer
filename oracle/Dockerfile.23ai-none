@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1
+# Oracle 23ai Free preset image, native amd64 + arm64.
+# Preset SQL runs after every database start via /container-entrypoint-startdb.d.
+FROM gvenzl/oracle-free:23-slim
+
+ENV TZ=Asia/Shanghai
+
+COPY --chmod=644 <<'EOF' /container-entrypoint-startdb.d/01-preset-dev.sql
+-- Preset (idempotent), runs as SYS on CDB FREE after the database is ready.
+WHENEVER SQLERROR EXIT FAILURE
+SET SERVEROUTPUT ON FEEDBACK ON
+
+-- Common profile must be altered at CDB root (ORA-65040 inside a PDB).
+ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
+ALTER PROFILE DEFAULT LIMIT FAILED_LOGIN_ATTEMPTS UNLIMITED;
+
+ALTER SESSION SET CONTAINER=FREEPDB1;
+
+DECLARE
+  n NUMBER;
+  v_dir VARCHAR2(512);
+BEGIN
+  SELECT SUBSTR(file_name, 1, INSTR(file_name, '/', -1)) INTO v_dir
+    FROM dba_data_files WHERE ROWNUM = 1;
+
+  SELECT COUNT(*) INTO n FROM dba_tablespaces WHERE tablespace_name = 'TS_DEV_TMP';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE TEMPORARY TABLESPACE TS_DEV_TMP '
+      || 'TEMPFILE ''' || v_dir || 'ts_dev_tmp01.dbf'' '
+      || 'SIZE 50M AUTOEXTEND ON NEXT 10M MAXSIZE 500M';
+    DBMS_OUTPUT.PUT_LINE('TS_DEV_TMP created');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('TS_DEV_TMP exists, skipped');
+  END IF;
+
+  SELECT COUNT(*) INTO n FROM dba_tablespaces WHERE tablespace_name = 'TS_DEV';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE TABLESPACE TS_DEV '
+      || 'DATAFILE ''' || v_dir || 'ts_dev01.dbf'' '
+      || 'SIZE 200M AUTOEXTEND ON NEXT 100M MAXSIZE UNLIMITED '
+      || 'EXTENT MANAGEMENT LOCAL SEGMENT SPACE MANAGEMENT AUTO';
+    DBMS_OUTPUT.PUT_LINE('TS_DEV created');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('TS_DEV exists, skipped');
+  END IF;
+
+  SELECT COUNT(*) INTO n FROM dba_users WHERE username = 'DEV';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE USER DEV IDENTIFIED BY "dev@1234" '
+      || 'DEFAULT TABLESPACE TS_DEV TEMPORARY TABLESPACE TS_DEV_TMP '
+      || 'QUOTA UNLIMITED ON TS_DEV ACCOUNT UNLOCK';
+    DBMS_OUTPUT.PUT_LINE('User DEV created');
+  ELSE
+    EXECUTE IMMEDIATE
+      'ALTER USER DEV IDENTIFIED BY "dev@1234" '
+      || 'DEFAULT TABLESPACE TS_DEV TEMPORARY TABLESPACE TS_DEV_TMP '
+      || 'QUOTA UNLIMITED ON TS_DEV ACCOUNT UNLOCK';
+    DBMS_OUTPUT.PUT_LINE('User DEV exists, updated');
+  END IF;
+END;
+/
+
+GRANT CONNECT, RESOURCE, DBA TO DEV;
+
+DECLARE
+  n NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO n FROM dba_tables WHERE owner = 'DEV' AND table_name = 'T_DEV_EXAMPLE';
+  IF n = 0 THEN
+    EXECUTE IMMEDIATE
+      'CREATE TABLE DEV.T_DEV_EXAMPLE ('
+      || 'ID NUMBER(10) PRIMARY KEY, '
+      || 'NAME VARCHAR2(100) NOT NULL, '
+      || 'REMARK VARCHAR2(500), '
+      || 'CREATED_AT DATE DEFAULT SYSDATE)';
+    EXECUTE IMMEDIATE
+      'INSERT INTO DEV.T_DEV_EXAMPLE (ID, NAME, REMARK) '
+      || 'VALUES (1, ''sample'', ''seeded by init script'')';
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('DEV.T_DEV_EXAMPLE created');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('DEV.T_DEV_EXAMPLE exists, skipped');
+  END IF;
+END;
+/
+EOF
