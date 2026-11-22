@@ -12,7 +12,7 @@
 | 服务 | 目录 | Action Choice | 默认端口 | 默认账号 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | Gitea + PostgreSQL | [`gitea/`](gitea/) | `gitea` | `44180`(Web)/`222`(SSH) | 首次访问走安装向导 | [Gitea 官方文档](https://docs.gitea.com/installation/install-with-docker/) |
-| Oracle 11g / 23ai | [`oracle/`](oracle/) | `oracle` | `1522`(11g)/`1521`(23ai) | `dev` / `dev@1234`(管理员 `system`) | 预置用户/表空间/样例表;11g 仅 amd64,23ai 原生 amd64+arm64 |
+| Oracle 11g / 19c / 23ai | [`oracle/`](oracle/) | `oracle` | `1522`(11g)/`1523`(19c)/`1521`(23ai) | `dev` / `dev@1234`(管理员 `system`) | 预置用户/表空间/样例表;11g 仅 amd64,19c 仅 arm64,23ai 不限架构 |
 | RustFS 对象存储 | [`rustfs/`](rustfs/) | `rustfs` | `9000`(S3 API)/`9001`(Console) | `rustfsadmin` / `rustfsadmin`(务必修改) | [RustFS 官方仓库](https://github.com/rustfs/rustfs) |
 
 每个服务的完整使用说明(启动、连接、初始化、备份、常见问题)请查看其目录下的 `README.md`。
@@ -33,15 +33,17 @@
 │   └── volumes/                 # 运行时数据(自动生成,不入库)
 │       ├── gitea/               # → 容器 /data
 │       └── postgres/            # → 容器 /var/lib/postgresql
-├── oracle/                      # 服务:Oracle 11g / 23ai 两套等价部署,二选一启动
+├── oracle/                      # 服务:Oracle 11g / 19c / 23ai 三套等价部署,选一套启动
 │   ├── README.md
-│   ├── docker-compose.11g.yml   # Oracle 11g XE(仅 amd64,含 seed 服务)
-│   ├── docker-compose.23ai.yml  # Oracle 23ai Free(原生 amd64+arm64)
-│   ├── Dockerfile.11g           # 11g 预置镜像(内嵌 entrypoint 与初始化 SQL)
-│   ├── Dockerfile.23ai          # 23ai 预置镜像(内嵌初始化 SQL)
+│   ├── docker-compose.11g-amd64.yml  # Oracle 11g XE(仅 amd64,含 seed 服务)
+│   ├── docker-compose.19c-arm64.yml  # Oracle 19c(仅 arm64,社区 ARM64 构建)
+│   ├── docker-compose.23ai-none.yml  # Oracle 23ai Free(不限架构,amd64+arm64)
+│   ├── Dockerfile.11g-amd64          # 11g 预置镜像(内嵌 entrypoint 与初始化 SQL)
+│   ├── Dockerfile.19c-arm64          # 19c 预置镜像(内嵌 entrypoint 与初始化 SQL)
+│   ├── Dockerfile.23ai-none          # 23ai 预置镜像(内嵌初始化 SQL)
 │   ├── .env.example
 │   └── volumes/                 # 运行时数据(自动生成,不入库)
-│       ├── oradata/             # → 11g: /u01/app/oracle/oradata;23ai: /opt/oracle/oradata
+│       ├── oradata/             # → 11g: /u01/app/oracle/oradata;19c: /opt/oracle/oradata;23ai: /opt/oracle/oradata
 │       └── fra/                 # → 11g: /u01/app/oracle/fast_recovery_area
 └── rustfs/                      # 服务:RustFS 对象存储(S3 兼容)
     ├── README.md
@@ -183,7 +185,7 @@ services:
 
 ## 注意事项
 
-- Oracle 11g / 23ai 服务使用的都是**社区/官方免费镜像**,仅限开发、测试与学习使用;
+- Oracle 11g / 19c / 23ai 服务使用的都是**社区/官方免费镜像**,仅限开发、测试与学习使用;
   生产环境请使用受支持的 Oracle 版本、官方镜像并自行解决授权。
 - 同一台机器上部署多个服务时,请确认端口不冲突(可在各自 `.env` 中修改)。
 - 各服务数据目录互相独立,备份时请分别处理。

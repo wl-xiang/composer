@@ -25,7 +25,7 @@ services:
   oracle:
     build:
       context: .
-      dockerfile: Dockerfile.11g
+      dockerfile: Dockerfile.11g-amd64
     image: ${ORACLE_11G_IMAGE:-oracle-11g-preset:1.0.0}
     container_name: ${ORACLE_11G_CONTAINER_NAME:-oracle-11g}
     hostname: oracle11g

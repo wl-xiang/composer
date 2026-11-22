@@ -7,7 +7,7 @@ services:
   oracle:
     build:
       context: .
-      dockerfile: Dockerfile.23ai
+      dockerfile: Dockerfile.23ai-none
     image: ${ORACLE_23AI_IMAGE:-oracle-23ai-preset:1.0.0}
     container_name: ${ORACLE_23AI_CONTAINER_NAME:-oracle-23ai}
     hostname: oracle23ai
