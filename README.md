@@ -12,7 +12,7 @@
 | 服务 | 目录 | Action Choice | 默认端口 | 默认账号 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | Gitea + PostgreSQL | [`gitea/`](gitea/) | `gitea` | `44180`(Web)/`222`(SSH) | 首次访问走安装向导 | [Gitea 官方文档](https://docs.gitea.com/installation/install-with-docker/) |
-| Oracle 11g / 23ai | [`oracle/11g/`](oracle/11g/) | `oracle-11g` | `1522`(11g)/`1521`(23ai) | `dev` / `dev@1234`(管理员 `system`) | 预置用户/表空间/样例表;11g 仅 amd64,23ai 原生 amd64+arm64 |
+| Oracle 11g / 23ai | [`oracle/`](oracle/) | `oracle` | `1522`(11g)/`1521`(23ai) | `dev` / `dev@1234`(管理员 `system`) | 预置用户/表空间/样例表;11g 仅 amd64,23ai 原生 amd64+arm64 |
 | RustFS 对象存储 | [`rustfs/`](rustfs/) | `rustfs` | `9000`(S3 API)/`9001`(Console) | `rustfsadmin` / `rustfsadmin`(务必修改) | [RustFS 官方仓库](https://github.com/rustfs/rustfs) |
 
 每个服务的完整使用说明(启动、连接、初始化、备份、常见问题)请查看其目录下的 `README.md`。
@@ -33,17 +33,16 @@
 │   └── volumes/                 # 运行时数据(自动生成,不入库)
 │       ├── gitea/               # → 容器 /data
 │       └── postgres/            # → 容器 /var/lib/postgresql
-├── oracle/
-│   └── 11g/                    # 服务:Oracle 11g / 23ai 两套等价部署,二选一启动
-│       ├── README.md
-│       ├── docker-compose.11g.yml   # Oracle 11g XE(仅 amd64,含 seed 服务)
-│       ├── docker-compose.23ai.yml  # Oracle 23ai Free(原生 amd64+arm64)
-│       ├── Dockerfile.11g           # 11g 预置镜像(内嵌 entrypoint 与初始化 SQL)
-│       ├── Dockerfile.23ai          # 23ai 预置镜像(内嵌初始化 SQL)
-│       ├── .env.example
-│       └── volumes/                 # 运行时数据(自动生成,不入库)
-│           ├── oradata/             # → 11g: /u01/app/oracle/oradata;23ai: /opt/oracle/oradata
-│           └── fra/                 # → 11g: /u01/app/oracle/fast_recovery_area
+├── oracle/                      # 服务:Oracle 11g / 23ai 两套等价部署,二选一启动
+│   ├── README.md
+│   ├── docker-compose.11g.yml   # Oracle 11g XE(仅 amd64,含 seed 服务)
+│   ├── docker-compose.23ai.yml  # Oracle 23ai Free(原生 amd64+arm64)
+│   ├── Dockerfile.11g           # 11g 预置镜像(内嵌 entrypoint 与初始化 SQL)
+│   ├── Dockerfile.23ai          # 23ai 预置镜像(内嵌初始化 SQL)
+│   ├── .env.example
+│   └── volumes/                 # 运行时数据(自动生成,不入库)
+│       ├── oradata/             # → 11g: /u01/app/oracle/oradata;23ai: /opt/oracle/oradata
+│       └── fra/                 # → 11g: /u01/app/oracle/fast_recovery_area
 └── rustfs/                      # 服务:RustFS 对象存储(S3 兼容)
     ├── README.md
     ├── docker-compose.yml
@@ -61,13 +60,13 @@
 1. **一个服务一个目录**:目录内必须包含 `docker-compose.yml`、`.env.example`、`README.md` 三个文件。
 2. **目录命名**:
    - 顶层目录名即服务名(如 `gitea`);
-   - 需要归类时使用「类别/服务名」两级结构(如 `oracle/11g`),**最多两级**。
+   - 需要归类时使用「类别/服务名」两级结构(如 `cache/redis`),**最多两级**。
 3. **数据一律使用宿主机本地目录映射(强制规则)**:
    - 所有 `docker-compose.yml` 中用于**持久化数据与日志**的 `volumes` **必须**写成
      `./volumes/xxx:容器内路径` 的本地目录映射,**禁止使用 Docker 具名卷**
      (即禁止在 compose 顶层声明 `volumes:` 并在服务中引用卷名);
    - 每个服务的数据目录统一放在**该服务目录下**的 `volumes/` 中,按用途分子目录,
-     例如 `gitea/volumes/gitea`、`gitea/volumes/postgres`、`oracle/11g/volumes/oradata`;
+     例如 `gitea/volumes/gitea`、`gitea/volumes/postgres`、`oracle/volumes/oradata`;
    - 数据目录名建议与用途对应:`oradata`(数据文件)、`fra`(快速恢复区)、`dump`(导入导出)、`data`(通用数据)、`logs`(日志);
    - 该目录由根目录 `.gitignore` 忽略,**不得提交**到仓库;
    - 目录映射路径需通过环境变量注入并带默认值,例如 `${REDIS_DATA_DIR:-./volumes/data}:/data`,
@@ -139,8 +138,8 @@ services:
 ```yaml
         options:
           - gitea
-          - oracle-11g-xe
-          - oracle-11g
+          - oracle
+          - rustfs
           - redis        # ← 新增
 ```
 
@@ -149,8 +148,7 @@ services:
 | 服务目录 | Action Choice |
 | --- | --- |
 | `gitea` | `gitea` |
-| `oracle/11g-xe` | `oracle-11g-xe` |
-| `oracle/11g` | `oracle-11g` |
+| `oracle` | `oracle` |
 | `cache/redis` | `cache-redis` |
 
 打包 Action 会按该规则在仓库中查找对应目录,找不到(或匹配到多个目录)时会直接报错,
@@ -175,7 +173,7 @@ services:
 
 1. 打开仓库的 **Actions** 标签页,选择 **Pack Service**;
 2. 点击 **Run workflow**,在下拉框中选择要打包的服务;
-3. 等待运行结束,在运行详情页底部下载 `artifact`(形如 `oracle-11g.tar.gz`)。
+3. 等待运行结束,在运行详情页底部下载 `artifact`(形如 `oracle.tar.gz`)。
 
 ### 行为说明
 

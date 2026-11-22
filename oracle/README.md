@@ -35,7 +35,7 @@
 ## 快速开始
 
 ```bash
-cd oracle/11g
+cd oracle
 cp .env.example .env
 
 # 二选一启动

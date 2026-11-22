@@ -4,7 +4,7 @@ name: Pack Service
 #
 # 新增服务时必须同步在下面的 options 中增加一个 choice:
 #   choice 名称 = 服务目录路径中的 "/" 替换为 "-"
-#   例:gitea -> gitea,oracle/11g -> oracle-11g
+#   例:gitea -> gitea,oracle -> oracle
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
         default: gitea
         options:
           - gitea
-          - oracle-11g
+          - oracle
           - rustfs
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
 
           # 约定:服务目录路径中的 "/" 替换为 "-" 即为 action choice 名称。
-          # 目录深度最多支持两层(例如 gitea、oracle/11g)。
+          # 目录深度最多支持两层(例如 gitea、cache/redis)。
           found=""
           while IFS= read -r dir; do
             slug="${dir//\//-}"
