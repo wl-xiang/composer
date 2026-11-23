@@ -47,6 +47,11 @@ LD_LIBRARY_PATH='$home/lib' PATH='$home/bin':\$PATH; $*"
 }
 
 start_db_manually() {
+  # Never interfere while dbca is creating the database (it owns the instance).
+  if ps -ef | grep -Eq '[d]bca|[c]reateDB\.sh'; then
+    log "Database creation is still running, skipping manual startup."
+    return 0
+  fi
   log "Manually starting listener and instance..."
   su_oracle "lsnrctl start" || true
   echo 'startup;' | su_oracle "sqlplus -s / as sysdba" || true
@@ -64,6 +69,45 @@ wait_db_open() {
     fi
     sleep 5
   done
+  return 1
+}
+
+# wait_pdb_ready <pdb> <timeout>
+# On first boot dbca creates the CDB first (instance becomes OPEN) and the PDB
+# only afterwards, so wait for it. Never touch the PDB while dbca/createDB is
+# still running, otherwise we could break the database creation.
+wait_pdb_ready() {
+  local pdb=$1 deadline=$(( $(date +%s) + $2 )) n
+  printf "SET HEADING OFF FEEDBACK OFF PAGESIZE 0\nWHENEVER SQLERROR CONTINUE\nSELECT COUNT(*) FROM v\$pdbs WHERE pdb_name = '%s' AND open_mode = 'READ WRITE';\nEXIT\n" "$pdb" > /tmp/check-pdb.sql
+  chmod 644 /tmp/check-pdb.sql
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    n=$(su_oracle "sqlplus -s / as sysdba @/tmp/check-pdb.sql" 2>/dev/null | tr -d '[:space:]')
+    if [ "$n" = "1" ]; then
+      return 0
+    fi
+    if ! ps -ef | grep -Eq '[d]bca|[c]reateDB\.sh'; then
+      echo "ALTER PLUGGABLE DATABASE $pdb OPEN;" | su_oracle "sqlplus -s / as sysdba" >/dev/null 2>&1 || true
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+# Verify end-to-end that the preset DEV user can log in through the listener.
+verify_dev_login() {
+  local conn=$1 i out
+  printf "CONNECT dev/\"dev@1234\"@%s\nSET HEADING OFF FEEDBACK OFF\nSELECT 'DEV_LOGIN_OK' FROM dual;\nEXIT\n" "$conn" > /tmp/verify-dev.sql
+  chmod 644 /tmp/verify-dev.sql
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    out=$(su_oracle "sqlplus -s /nolog @/tmp/verify-dev.sql" 2>&1 || true)
+    if echo "$out" | grep -q DEV_LOGIN_OK; then
+      log "DEV login OK ($conn)."
+      return 0
+    fi
+    sleep 3
+  done
+  log "ERROR: DEV login failed ($conn):"
+  echo "$out" | sed 's/^/[oracle-entrypoint]   /' >&2
   return 1
 }
 
@@ -85,17 +129,24 @@ else
 fi
 
 log "Waiting for database to OPEN (first boot creates the DB via dbca, may take 10~20 minutes)..."
-if wait_db_open 900; then
+if wait_db_open 1800; then
   log "Database instance is OPEN."
 else
   log "Not OPEN yet, retrying with manual startup..."
   start_db_manually
-  if wait_db_open 600; then
+  if wait_db_open 900; then
     log "Database instance is OPEN."
   else
     log "ERROR: database did not reach OPEN state."
     exit 1
   fi
+fi
+
+log "Waiting for PDB ORCLPDB1 to be READ WRITE..."
+if wait_pdb_ready ORCLPDB1 1800; then
+  log "PDB ORCLPDB1 is READ WRITE."
+else
+  log "ERROR: PDB ORCLPDB1 did not become READ WRITE within 30 minutes."
 fi
 
 INIT_DIR=/usr/local/share/oracle-initdb
@@ -120,6 +171,14 @@ for f in "$INIT_DIR"/*.sql; do
 done
 shopt -u nullglob
 
+if wait_db_open 120; then
+  log "Database is OPEN after init."
+else
+  log "ERROR: database is not OPEN after init; check container logs."
+fi
+
+verify_dev_login "//localhost:1521/ORCLPDB1"
+
 echo ""
 echo "Database ready to use. Enjoy ;)"
 echo "Preset user: DEV / dev@1234  (SID: ORCLCDB, PDB: ORCLPDB1)"
@@ -136,7 +195,8 @@ SET SERVEROUTPUT ON FEEDBACK ON
 ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
 ALTER PROFILE DEFAULT LIMIT FAILED_LOGIN_ATTEMPTS UNLIMITED;
 
--- Make sure the PDB is open, then switch into it.
+-- Make sure the PDB is open (the entrypoint already waits for this; kept as a
+-- safety net). Never run this while dbca is still creating the database.
 DECLARE
   n NUMBER;
 BEGIN

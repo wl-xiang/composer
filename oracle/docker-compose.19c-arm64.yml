@@ -4,6 +4,23 @@
 name: oracle-19c-arm64
 
 services:
+  oracle-prep:
+    build:
+      context: .
+      dockerfile: Dockerfile.19c-arm64
+    image: ${ORACLE_19C_IMAGE:-oracle-19c-arm64-preset:1.0.0}
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /opt/oracle/oradata
+        chown -R 54321:54321 /opt/oracle/oradata || echo "prep: WARN: chown failed"
+        echo "prep: ./volumes/oradata owner set to 54321:54321"
+    volumes:
+      - ${ORACLE_19C_ORADATA_DIR:-./volumes/oradata}:/opt/oracle/oradata
+    restart: "no"
+
   oracle:
     build:
       context: .
@@ -12,6 +29,9 @@ services:
     container_name: ${ORACLE_19C_CONTAINER_NAME:-oracle-19c-arm64}
     hostname: oracle19c
     restart: unless-stopped
+    depends_on:
+      oracle-prep:
+        condition: service_completed_successfully
     stop_grace_period: 180s
     shm_size: 1g
     mem_limit: ${ORACLE_19C_MEM_LIMIT:-4g}

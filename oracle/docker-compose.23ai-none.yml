@@ -4,6 +4,23 @@
 name: oracle-23ai
 
 services:
+  oracle-prep:
+    build:
+      context: .
+      dockerfile: Dockerfile.23ai-none
+    image: ${ORACLE_23AI_IMAGE:-oracle-23ai-preset:1.0.0}
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /opt/oracle/oradata
+        chown -R 54321:54321 /opt/oracle/oradata || echo "prep: WARN: chown failed"
+        echo "prep: ./volumes/oradata owner set to 54321:54321"
+    volumes:
+      - ${ORACLE_23AI_ORADATA_DIR:-./volumes/oradata}:/opt/oracle/oradata
+    restart: "no"
+
   oracle:
     build:
       context: .
@@ -12,6 +29,9 @@ services:
     container_name: ${ORACLE_23AI_CONTAINER_NAME:-oracle-23ai}
     hostname: oracle23ai
     restart: unless-stopped
+    depends_on:
+      oracle-prep:
+        condition: service_completed_successfully
     stop_grace_period: 180s
     shm_size: 1g
     mem_limit: ${ORACLE_23AI_MEM_LIMIT:-4g}

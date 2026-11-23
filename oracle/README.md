@@ -49,17 +49,13 @@ docker compose -f docker-compose.23ai-none.yml up -d --build      # 推荐:不�
 docker compose -f docker-compose.11g-amd64.yml up -d --build      # 仅 amd64
 docker compose -f docker-compose.19c-arm64.yml up -d --build      # 仅 arm64
 
-# 观察日志,出现 "Database ready to use. Enjoy ;)" 即就绪
+# 观察日志,出现 "DATABASE IS READY TO USE"(23ai)或 "Database ready to use. Enjoy ;)"(11g/19c)即就绪
 docker logs -f oracle-23ai        # 或 oracle-11g / oracle-19c-arm64
 ```
 
-Linux 宿主机首次启动 19c/23ai 前,需把数据目录属主改为容器内 oracle 用户(uid 54321):
-
-```bash
-mkdir -p volumes/oradata && sudo chown -R 54321:54321 volumes/oradata
-```
-
-11g 无需 chown:seed 服务在容器内以 root 复制文件,属主与镜像保持一致。
+19c / 23ai 的编排里带一个一次性的 `oracle-prep` 服务:启动前以 root 把 `./volumes/oradata`
+的属主改为容器内 oracle(uid 54321),因此 Linux 上无需再手动 chown(`docker compose ps -a`
+里看到 `oracle-prep` 正常退出即完成)。11g 无需处理:seed 服务在容器内以 root 复制文件,属主与镜像一致。
 19c/23ai 首次启动需要建库,耗时 10~20 分钟属正常;日志中出现就绪提示前请勿中断。
 
 ## 连接信息
@@ -117,7 +113,7 @@ docker compose -f docker-compose.23ai-none.yml build      # 改 Dockerfile 后�
 
 # 完全重置(重新建库/seed)
 docker compose -f docker-compose.23ai-none.yml down
-sudo rm -rf volumes/ && sudo chown -R 54321:54321 volumes/oradata 2>/dev/null || true
+sudo rm -rf volumes/
 docker compose -f docker-compose.23ai-none.yml up -d
 ```
 
@@ -130,7 +126,8 @@ docker compose -f docker-compose.23ai-none.yml up -d
 | `ORA-12514` / `ORA-12528` | 库尚未 OPEN,`docker logs -f` 等待就绪提示 |
 | 11g 首次启动卡住 | seed 服务正在复制预建库(约数百 MB),`docker compose -f docker-compose.11g-amd64.yml logs oracle-seed` 查看 |
 | 19c 首次启动慢 | 正常:镜像内无预建库,首次启动走 dbca 建库,10~20 分钟 |
-| 19c/23ai 启动失败且日志提示权限 | Linux 上未 chown 数据目录(uid 54321),见快速开始 |
+| 19c/23ai 启动失败且日志提示权限 | `oracle-prep` 服务应已自动修复属主;若使用了自定义数据目录,可手动 `sudo chown -R 54321:54321 <目录>` |
+| 日志出现 `DEV login OK` | 预置用户已通过监听器实测可登录;若为 `ERROR: DEV login failed`,按上面输出排查 |
 | 端口冲突 | 修改 `.env` 中 `ORACLE_11G_PORT` / `ORACLE_19C_PORT` / `ORACLE_23AI_PORT` |
 | 忘记密码 | 11g: `docker exec -it oracle-11g sqlplus / as sysdba`;19c: `docker exec -it oracle-19c-arm64 sqlplus / as sysdba`;23ai: `docker exec -it oracle-23ai sqlplus sys/<ORACLE_SYS_PASSWORD>@FREE as sysdba`,然后 `ALTER USER ... IDENTIFIED BY ...` |
 
