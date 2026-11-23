@@ -36,15 +36,34 @@ start_db_manually() {
   echo 'startup;' | su_oracle "sqlplus -s / as sysdba" || true
 }
 
+# wait_db_open <timeout> <stable_secs> [startup_pid]
+# The XE startup script restarts the instance once (startup -> alter system ->
+# shutdown -> lsnrctl restart -> startup). Only report readiness when the
+# instance is OPEN *after* that script has exited, or (if it keeps running,
+# e.g. it tails the alert log) after the instance has stayed OPEN for
+# <stable_secs> seconds without dropping.
 wait_db_open() {
   local deadline=$(( $(date +%s) + $1 ))
-  local status
+  local stable_secs=${2:-0}
+  local startup_pid=${3:-}
+  local status stable_start=0 now
   printf 'SET HEADING OFF FEEDBACK OFF PAGESIZE 0\nWHENEVER SQLERROR EXIT FAILURE\nSELECT status FROM v$instance;\nEXIT\n' > /tmp/check-db.sql
   chmod 644 /tmp/check-db.sql
   while [ "$(date +%s)" -lt "$deadline" ]; do
     status=$(su_oracle "sqlplus -s / as sysdba @/tmp/check-db.sql" 2>/dev/null | tr -d '[:space:]')
     if [ "$status" = "OPEN" ]; then
-      return 0
+      if [ -n "$startup_pid" ] && ! kill -0 "$startup_pid" 2>/dev/null; then
+        return 0
+      fi
+      now=$(date +%s)
+      if [ "$stable_start" -eq 0 ]; then
+        stable_start=$now
+      fi
+      if [ $(( now - stable_start )) -ge "$stable_secs" ]; then
+        return 0
+      fi
+    else
+      stable_start=0
     fi
     sleep 3
   done
@@ -59,21 +78,23 @@ for candidate in /usr/sbin/startup.sh /usr/sbin/startup2.sh /usr/local/bin/start
   fi
 done
 
+startup_pid=""
 if [ -n "$orig_startup" ]; then
   log "Launching original startup script: $orig_startup"
   ( "$orig_startup" ) || true &
+  startup_pid=$!
 else
   log "No original startup script found, starting database manually"
   start_db_manually
 fi
 
-log "Waiting for database to OPEN (first boot takes several minutes)..."
-if wait_db_open 480; then
+log "Waiting for database to OPEN and stay stable (first boot takes several minutes)..."
+if wait_db_open 480 30 "$startup_pid"; then
   log "Database instance is OPEN."
 else
   log "Not OPEN yet, retrying with manual startup..."
   start_db_manually
-  if wait_db_open 300; then
+  if wait_db_open 300 30; then
     log "Database instance is OPEN."
   else
     log "ERROR: database did not reach OPEN state."
@@ -101,6 +122,12 @@ for f in "$INIT_DIR"/*.sql; do
   su_oracle "sqlplus -s / as sysdba @$INIT_STAGE/$base" || log "WARN: $base failed (non-fatal)"
 done
 shopt -u nullglob
+
+if wait_db_open 120 0; then
+  log "Database is OPEN after init."
+else
+  log "ERROR: database is not OPEN after init; check container logs."
+fi
 
 echo ""
 echo "Database ready to use. Enjoy ;)"
