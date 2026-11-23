@@ -70,6 +70,24 @@ wait_db_open() {
   return 1
 }
 
+# Verify end-to-end that the preset DEV user can log in through the listener.
+verify_dev_login() {
+  local conn=$1 i out
+  printf "CONNECT dev/\"dev@1234\"@%s\nSET HEADING OFF FEEDBACK OFF\nSELECT 'DEV_LOGIN_OK' FROM dual;\nEXIT\n" "$conn" > /tmp/verify-dev.sql
+  chmod 644 /tmp/verify-dev.sql
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    out=$(su_oracle "sqlplus -s /nolog @/tmp/verify-dev.sql" 2>&1 || true)
+    if echo "$out" | grep -q DEV_LOGIN_OK; then
+      log "DEV login OK ($conn)."
+      return 0
+    fi
+    sleep 3
+  done
+  log "ERROR: DEV login failed ($conn):"
+  echo "$out" | sed 's/^/[oracle-entrypoint]   /' >&2
+  return 1
+}
+
 orig_startup=""
 for candidate in /usr/sbin/startup.sh /usr/sbin/startup2.sh /usr/local/bin/startup.sh; do
   if [ -x "$candidate" ]; then
@@ -128,6 +146,8 @@ if wait_db_open 120 0; then
 else
   log "ERROR: database is not OPEN after init; check container logs."
 fi
+
+verify_dev_login "//localhost:1521/XE"
 
 echo ""
 echo "Database ready to use. Enjoy ;)"
