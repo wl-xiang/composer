@@ -5,6 +5,9 @@ name: oracle-11g
 
 services:
   oracle-seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.11g-amd64
     image: ${ORACLE_11G_IMAGE:-oracle-11g-preset:1.0.0}
     entrypoint: ["/bin/bash", "-c"]
     command:
