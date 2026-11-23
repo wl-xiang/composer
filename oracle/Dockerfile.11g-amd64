@@ -81,10 +81,24 @@ else
   fi
 fi
 
+INIT_STAGE=/tmp/oracle-initdb
+rm -rf "$INIT_STAGE"
+mkdir -p "$INIT_STAGE"
+chmod 755 "$INIT_STAGE"
+
 shopt -s nullglob
 for f in "$INIT_DIR"/*.sql; do
-  log "Running init: $(basename "$f")"
-  su_oracle "sqlplus -s / as sysdba @'$f'" || log "WARN: $(basename "$f") failed (non-fatal)"
+  base=$(basename "$f")
+  # Stage a world-readable copy under /tmp (the same place as the runtime
+  # check file) so the oracle OS user can always open it, whatever mode/mount
+  # the image directory ends up with.
+  if ! cp "$f" "$INIT_STAGE/$base" 2>/dev/null; then
+    log "ERROR: cannot read init script $f, skipped"
+    continue
+  fi
+  chmod 644 "$INIT_STAGE/$base"
+  log "Running init: $base"
+  su_oracle "sqlplus -s / as sysdba @$INIT_STAGE/$base" || log "WARN: $base failed (non-fatal)"
 done
 shopt -u nullglob
 
@@ -171,6 +185,10 @@ END;
 
 EXIT
 EOF
+
+# COPY creates the init dir/file with the build-time umask; make sure the oracle
+# OS user (which runs sqlplus) can always read them.
+RUN chmod -R a+rX /usr/local/share/oracle-initdb
 
 CMD []
 ENTRYPOINT ["/usr/local/bin/oracle-entrypoint.sh"]

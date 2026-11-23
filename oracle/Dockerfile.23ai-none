@@ -87,3 +87,9 @@ BEGIN
 END;
 /
 EOF
+
+# COPY creates the startup-script dir/file with the build-time umask; make sure
+# the oracle OS user (which runs sqlplus in the entrypoint) can always read them.
+USER root
+RUN chmod -R a+rX /container-entrypoint-startdb.d
+USER oracle

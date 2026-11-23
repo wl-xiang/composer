@@ -35,11 +35,14 @@ export NLS_LANG="${NLS_LANG:-AMERICAN_AMERICA.AL32UTF8}"
 log "Using ORACLE_HOME=$home ORACLE_SID=$sid"
 
 su_oracle() {
-  if id oracle >/dev/null 2>&1; then
+  # The base image already runs as the oracle user (USER oracle), so only fall
+  # back to su(1) when the entrypoint happens to run as root.
+  if [ "$(id -u)" -eq 0 ] && id oracle >/dev/null 2>&1; then
     su -l oracle -c "export ORACLE_HOME='$home' ORACLE_SID='$sid' \
 LD_LIBRARY_PATH='$home/lib' PATH='$home/bin':\$PATH; $*"
   else
-    "$@"
+    sh -c "export ORACLE_HOME='$home' ORACLE_SID='$sid' \
+LD_LIBRARY_PATH='$home/lib' PATH='$home/bin':\$PATH; $*"
   fi
 }
 
@@ -96,10 +99,24 @@ else
 fi
 
 INIT_DIR=/usr/local/share/oracle-initdb
+INIT_STAGE=/tmp/oracle-initdb
+rm -rf "$INIT_STAGE"
+mkdir -p "$INIT_STAGE"
+chmod 755 "$INIT_STAGE"
+
 shopt -s nullglob
 for f in "$INIT_DIR"/*.sql; do
-  log "Running init: $(basename "$f")"
-  su_oracle "sqlplus -s / as sysdba @'$f'" || log "WARN: $(basename "$f") failed (non-fatal)"
+  base=$(basename "$f")
+  # Stage a world-readable copy under /tmp (the same place as the runtime
+  # check file) so the oracle OS user can always open it, whatever mode/mount
+  # the image directory ends up with.
+  if ! cp "$f" "$INIT_STAGE/$base" 2>/dev/null; then
+    log "ERROR: cannot read init script $f, skipped"
+    continue
+  fi
+  chmod 644 "$INIT_STAGE/$base"
+  log "Running init: $base"
+  su_oracle "sqlplus -s / as sysdba @$INIT_STAGE/$base" || log "WARN: $base failed (non-fatal)"
 done
 shopt -u nullglob
 
@@ -204,6 +221,12 @@ BEGIN
 END;
 /
 EOF
+
+# COPY creates the init dir/file with the build-time umask; make sure the oracle
+# OS user (which runs sqlplus) can always read them.
+USER root
+RUN chmod -R a+rX /usr/local/share/oracle-initdb
+USER oracle
 
 CMD []
 ENTRYPOINT ["/usr/local/bin/oracle-entrypoint.sh"]
