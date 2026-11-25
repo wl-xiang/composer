@@ -147,7 +147,11 @@ else
   log "ERROR: database is not OPEN after init; check container logs."
 fi
 
+INIT_MARKER=/u01/app/oracle/oradata/XE/.preset-initialized
 if verify_dev_login "//localhost:1521/XE"; then
+  # 写"已初始化"标记(落在 ./volumes/oradata/XE/ 里,随数据持久化):
+  # 之后每次 down/up,oracle-seed 检测到该标记即跳过复制。
+  touch "$INIT_MARKER" 2>/dev/null || log "WARN: cannot write init marker $INIT_MARKER"
   echo ""
   echo "Database ready to use. Enjoy ;)"
   echo "Preset user: DEV / dev@1234  (SID: XE)"

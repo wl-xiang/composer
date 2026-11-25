@@ -1,6 +1,7 @@
 # Oracle Database 11g XE 预置镜像部署(仅 amd64)。
 # 预置:用户 dev/dev@1234、表空间 TS_DEV、临时表空间 TS_DEV_TMP、样例表 DEV.T_DEV_EXAMPLE。
-# 数据使用 ./volumes/ 绑定目录;首次启动由 oracle-seed 服务把镜像内预建库复制进去。
+# 数据使用 ./volumes/ 绑定目录;首次启动由 oracle-seed 服务把镜像内预建库复制进去,
+# 预置初始化成功后会在 oradata 里写入 .preset-initialized 标记,之后每次 up/down 循环 seed 都直接跳过。
 name: oracle-11g
 
 services:
@@ -13,8 +14,15 @@ services:
     command:
       - |
         set -e
+        # 1) 预置已完整初始化过(entrypoint 在 init 成功后写入的标记):直接跳过,不再复制
+        if [ -f /seed/oradata/XE/.preset-initialized ]; then
+          echo "seed: preset already initialized, skip"
+          exit 0
+        fi
+        # 2) 数据库数据文件已存在(已 seed 过,或建过库但预置 init 未完成):
+        #    同样不覆盖,交给幂等的 init SQL 检测 DEV/表空间是否存在
         if [ -f /seed/oradata/XE/system01.dbf ]; then
-          echo "seed: existing database found in ./volumes/oradata, skip"
+          echo "seed: database data exists in ./volumes/oradata, skip"
           exit 0
         fi
         if [ -d /seed/oradata/XE ] && [ -n "$(ls -A /seed/oradata/XE 2>/dev/null)" ]; then
