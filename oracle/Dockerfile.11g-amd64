@@ -147,22 +147,42 @@ else
   log "ERROR: database is not OPEN after init; check container logs."
 fi
 
-verify_dev_login "//localhost:1521/XE"
+if verify_dev_login "//localhost:1521/XE"; then
+  echo ""
+  echo "Database ready to use. Enjoy ;)"
+  echo "Preset user: DEV / dev@1234  (SID: XE)"
+  echo ""
+else
+  log "ERROR: preset verification failed; exiting so the container restarts and retries."
+  exit 1
+fi
 
-echo ""
-echo "Database ready to use. Enjoy ;)"
-echo "Preset user: DEV / dev@1234  (SID: XE)"
-echo ""
-exec tail -f /dev/null
+# PID1 foreground loop. Do NOT use `exec tail`: SIGTERM must reach this shell so
+# we can shut the database down cleanly before `docker compose down` stops us.
+shutdown_db() {
+  log "SIGTERM received, shutting down database cleanly..."
+  echo 'shutdown immediate;' | su_oracle "sqlplus -s / as sysdba" >/dev/null 2>&1 || true
+  su_oracle "lsnrctl stop" >/dev/null 2>&1 || true
+  exit 0
+}
+trap shutdown_db TERM INT
+while :; do
+  sleep 2147483647 &
+  wait $!
+done
 EOF
 
 COPY --chmod=644 <<'EOF' /usr/local/share/oracle-initdb/01-preset-dev.sql
 -- Preset (idempotent), runs as SYSDBA after the instance is OPEN.
 SET ECHO ON FEEDBACK ON SERVEROUTPUT ON
+WHENEVER SQLERROR EXIT SQL.SQLCODE
 
 ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
 ALTER PROFILE DEFAULT LIMIT FAILED_LOGIN_ATTEMPTS UNLIMITED;
 
+-- 每个对象独立一个 PL/SQL 块:某一步失败不会阻断后续步骤。
+-- 数据文件带 REUSE:即使 ./volumes 里残留了上次启动创建的 dbf(字典被回退成出厂状态),
+-- 也能直接复用该文件完成建表空间,不会再报 ORA-01119/ORA-27038。
 DECLARE
   n NUMBER;
 BEGIN
@@ -171,24 +191,34 @@ BEGIN
     EXECUTE IMMEDIATE
       'CREATE TEMPORARY TABLESPACE TS_DEV_TMP '
       || 'TEMPFILE ''/u01/app/oracle/oradata/XE/ts_dev_tmp01.dbf'' '
-      || 'SIZE 50M AUTOEXTEND ON NEXT 10M MAXSIZE 500M';
+      || 'SIZE 50M REUSE AUTOEXTEND ON NEXT 10M MAXSIZE 500M';
     DBMS_OUTPUT.PUT_LINE('TS_DEV_TMP created');
   ELSE
     DBMS_OUTPUT.PUT_LINE('TS_DEV_TMP exists, skipped');
   END IF;
+END;
+/
 
+DECLARE
+  n NUMBER;
+BEGIN
   SELECT COUNT(*) INTO n FROM dba_tablespaces WHERE tablespace_name = 'TS_DEV';
   IF n = 0 THEN
     EXECUTE IMMEDIATE
       'CREATE TABLESPACE TS_DEV '
       || 'DATAFILE ''/u01/app/oracle/oradata/XE/ts_dev01.dbf'' '
-      || 'SIZE 200M AUTOEXTEND ON NEXT 100M MAXSIZE UNLIMITED '
+      || 'SIZE 200M REUSE AUTOEXTEND ON NEXT 100M MAXSIZE UNLIMITED '
       || 'EXTENT MANAGEMENT LOCAL SEGMENT SPACE MANAGEMENT AUTO';
     DBMS_OUTPUT.PUT_LINE('TS_DEV created');
   ELSE
     DBMS_OUTPUT.PUT_LINE('TS_DEV exists, skipped');
   END IF;
+END;
+/
 
+DECLARE
+  n NUMBER;
+BEGIN
   SELECT COUNT(*) INTO n FROM dba_users WHERE username = 'DEV';
   IF n = 0 THEN
     EXECUTE IMMEDIATE

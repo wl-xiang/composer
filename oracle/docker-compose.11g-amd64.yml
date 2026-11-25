@@ -14,8 +14,11 @@ services:
       - |
         set -e
         if [ -f /seed/oradata/XE/system01.dbf ]; then
-          echo "seed: existing data found, skip"
+          echo "seed: existing database found in ./volumes/oradata, skip"
           exit 0
+        fi
+        if [ -d /seed/oradata/XE ] && [ -n "$(ls -A /seed/oradata/XE 2>/dev/null)" ]; then
+          echo "seed: WARNING - ./volumes/oradata/XE is not empty but lacks system01.dbf; reseeding pristine copy"
         fi
         cp -a /u01/app/oracle/oradata/. /seed/oradata/
         cp -a /u01/app/oracle/fast_recovery_area/. /seed/fra/
