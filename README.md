@@ -14,6 +14,7 @@
 | Gitea + PostgreSQL | [`gitea/`](gitea/) | `gitea` | `44180`(Web)/`222`(SSH) | 首次访问走安装向导 | [Gitea 官方文档](https://docs.gitea.com/installation/install-with-docker/) |
 | Oracle 11g / 19c / 23ai | [`oracle/`](oracle/) | `oracle` | `1522`(11g)/`1523`(19c)/`1521`(23ai) | `dev` / `dev@1234`(管理员 `system`) | 预置用户/表空间/样例表;11g 仅 amd64,19c 仅 arm64,23ai 不限架构 |
 | RustFS 对象存储 | [`rustfs/`](rustfs/) | `rustfs` | `9000`(S3 API)/`9001`(Console) | `rustfsadmin` / `rustfsadmin`(务必修改) | [RustFS 官方仓库](https://github.com/rustfs/rustfs) |
+| SiYuan 思源笔记 | [`siyuan/`](siyuan/) | `siyuan` | `6806`(Web) | 无默认账号,登录使用访问授权码(`.env` 中设置) | [SiYuan 官方仓库](https://github.com/siyuan-note/siyuan) |
 
 每个服务的完整使用说明(启动、连接、初始化、备份、常见问题)请查看其目录下的 `README.md`。
 
@@ -45,16 +46,22 @@
 │   └── volumes/                 # 运行时数据(自动生成,不入库)
 │       ├── oradata/             # → 11g: /u01/app/oracle/oradata;19c: /opt/oracle/oradata;23ai: /opt/oracle/oradata
 │       └── fra/                 # → 11g: /u01/app/oracle/fast_recovery_area
-└── rustfs/                      # 服务:RustFS 对象存储(S3 兼容)
+├── rustfs/                      # 服务:RustFS 对象存储(S3 兼容)
+│   ├── README.md
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── volumes/                 # 运行时数据(需提前创建,不入库)
+│       ├── rustfs0/             # → 容器 /data/rustfs0
+│       ├── rustfs1/             # → 容器 /data/rustfs1
+│       ├── rustfs2/             # → 容器 /data/rustfs2
+│       ├── rustfs3/             # → 容器 /data/rustfs3
+│       └── logs/                # → 容器 /app/logs
+└── siyuan/                      # 服务:思源笔记(SiYuan)
     ├── README.md
     ├── docker-compose.yml
     ├── .env.example
-    └── volumes/                 # 运行时数据(需提前创建,不入库)
-        ├── rustfs0/             # → 容器 /data/rustfs0
-        ├── rustfs1/             # → 容器 /data/rustfs1
-        ├── rustfs2/             # → 容器 /data/rustfs2
-        ├── rustfs3/             # → 容器 /data/rustfs3
-        └── logs/                # → 容器 /app/logs
+    └── volumes/                 # 运行时数据(自动生成,不入库)
+        └── workspace/           # → 容器 /siyuan/workspace
 ```
 
 ## 通用约定

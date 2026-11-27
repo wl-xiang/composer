@@ -1,0 +1,29 @@
+# SiYuan(思源笔记) Docker Compose 部署
+# 基于官方仓库: https://github.com/siyuan-note/siyuan
+#
+# 使用前请复制 .env.example 为 .env 并按需修改(尤其是访问授权码)。
+
+name: siyuan
+
+services:
+  siyuan:
+    image: b3log/siyuan:${SIYUAN_VERSION:-latest}
+    container_name: ${SIYUAN_CONTAINER_NAME:-siyuan}
+    # 镜像 entrypoint 规定:通过 command 传参时必须带上 serve 子命令,
+    # 否则用户参数会整体覆盖 CMD 导致服务不启动。
+    command:
+      - serve
+      - --workspace=/siyuan/workspace/
+    environment:
+      # 访问授权码(登录 Web 界面时的密码),请务必修改为强密码
+      - SIYUAN_ACCESS_AUTH_CODE=${SIYUAN_ACCESS_AUTH_CODE:-siyuan-auth-code}
+      - TZ=${TZ:-Asia/Shanghai}
+      # 容器内进程运行的用户/组 ID,镜像 entrypoint 会自动将工作区 chown 为该 UID/GID
+      - PUID=${SIYUAN_PUID:-1000}
+      - PGID=${SIYUAN_PGID:-1000}
+    volumes:
+      # 工作区数据(笔记本、资源文件、配置等)本地目录映射
+      - ${SIYUAN_WORKSPACE_DIR:-./volumes/workspace}:/siyuan/workspace
+    ports:
+      - "${SIYUAN_PORT:-6806}:6806"
+    restart: unless-stopped
