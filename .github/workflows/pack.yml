@@ -18,6 +18,7 @@ on:
           - gitea
           - oracle
           - rustfs
+          - siyuan
 
 permissions:
   contents: read
